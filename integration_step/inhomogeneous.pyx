@@ -33,7 +33,8 @@ from raysect.optical cimport new_point3d
 from libc.math cimport floor
 cimport cython
 
-print("hello bitches!")
+# MMM
+cimport numpy as np
 
 cdef class VolumeIntegrator:
     """
@@ -78,9 +79,10 @@ cdef class NumericalIntegrator(VolumeIntegrator):
       range (default=5).
     """
 
-    def __init__(self, float step, int min_samples=5):
+    def __init__(self, float step, int min_samples=5, float max_emission): # MMM
         self._step = step
         self._min_samples = min_samples
+        self._max_emission = max_emission # MMM
 
     @property
     def step(self):
@@ -102,6 +104,40 @@ cdef class NumericalIntegrator(VolumeIntegrator):
             raise ValueError("At least two samples are required to perform the numerical integration.")
         self._min_samples = value
 
+    # ##########################
+    # MMM start
+    
+    @property
+    def max_emission(self):
+        return self._max_emission
+
+    @max_emission.setter
+    def max_emission(self, double value):
+        if value <= 0:
+            raise ValueError("Maximum emission must be strictly-greater than zero.")
+        self._max_emission = value
+        
+    @cython.boundscheck(False)
+    @cython.wraparound(False)
+    @cython.cdivision(False)
+    @cython.initializedcheck(False)
+    cpdef double compute_step(self, double emission, double max_emission):
+        
+        cdef:
+            double factor
+        
+        # Fermi-Dirac-like distribution:
+        # - threshold = max_emission / 1.0E+03
+        # - if emission < threshold then step is close (see strength) to maximum
+        # - if emission = threshold then step is halved
+        # - if emission > threshold then step reduces fast (until minimum is reached)
+        factor = strength * (when_halved * emission / max_emission - 1)
+
+        return np.max([(np.exp(factor) + 1)**(-1), 5.0E-05])
+    
+    # MMM end
+    # ##########################
+        
     @cython.boundscheck(False)
     @cython.wraparound(False)
     @cython.cdivision(True)
@@ -113,7 +149,7 @@ cdef class NumericalIntegrator(VolumeIntegrator):
         cdef:
             Point3D start, end
             Vector3D integration_direction, ray_direction
-            double length, step, t, c
+            double length, step, t, c, max_emission
             Spectrum emission, emission_previous, temp
             int intervals, interval, index
 
@@ -133,10 +169,11 @@ cdef class NumericalIntegrator(VolumeIntegrator):
         ray_direction = integration_direction.neg()
 
         # calculate number of complete intervals (samples - 1)
-        intervals = max(self._min_samples - 1, <int> floor(length / self._step))
+        # intervals = max(self._min_samples - 1, <int> floor(length / self._step))
 
         # adjust (increase) step size to absorb any remainder and maintain equal interval spacing
-        step = length / intervals
+        step = self._step # length / intervals # MMM
+        max_emission = self._max_emission      # MMM
 
         # create working buffers
         emission = ray.new_spectrum()
