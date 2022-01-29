@@ -180,6 +180,9 @@ cdef class NumericalIntegrator(VolumeIntegrator):
                 # trapezium rule integration
                 for index in range(spectrum.bins):
                     spectrum.samples_mv[index] += c * (emission.samples_mv[index] + emission_previous.samples_mv[index])
+                    if material.use_absorption_function == 1:
+                        spectrum.samples_mv[index] *= \ 
+                        exp(- step * material.absorption_function_3d(sample_point.x, sample_point.y, sample_point.z))
 
                 # swap buffers and clear the active buffer
                 temp = emission_previous
@@ -222,6 +225,9 @@ cdef class NumericalIntegrator(VolumeIntegrator):
                 # trapezium rule integration
                 # HP: no wavelength dependence
                 spectrum.samples_mv[0] += 0.5 * step * (emission.samples_mv[0] + emission_previous.samples_mv[0])
+                if material.use_absorption_function == 1:
+                    spectrum.samples_mv[0] *= \ 
+                    exp(- step * material.absorption_function_3d(start.x, start.y, start.z))
 
                 emission_previous = emission
                 emission.clear()
