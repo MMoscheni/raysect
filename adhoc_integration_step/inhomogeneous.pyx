@@ -30,7 +30,7 @@
 # POSSIBILITY OF SUCH DAMAGE.
 
 from raysect.optical cimport new_point3d
-from libc.math cimport floor
+from libc.math cimport floor, exp
 # from cherab.core.math.function cimport Function3D, autowrap_function3d # MMM
 cimport cython
 
@@ -181,8 +181,7 @@ cdef class NumericalIntegrator(VolumeIntegrator):
                 for index in range(spectrum.bins):
                     spectrum.samples_mv[index] += c * (emission.samples_mv[index] + emission_previous.samples_mv[index])
                     if material.use_absorption_function == 1:
-                        spectrum.samples_mv[index] *= \ 
-                        exp(- step * material.absorption_function_3d(sample_point.x, sample_point.y, sample_point.z))
+                        spectrum.samples_mv[index] *= exp(- step * material.absorption_function_3d(sample_point.x, sample_point.y, sample_point.z))
 
                 # swap buffers and clear the active buffer
                 temp = emission_previous
@@ -226,8 +225,7 @@ cdef class NumericalIntegrator(VolumeIntegrator):
                 # HP: no wavelength dependence
                 spectrum.samples_mv[0] += 0.5 * step * (emission.samples_mv[0] + emission_previous.samples_mv[0])
                 if material.use_absorption_function == 1:
-                    spectrum.samples_mv[0] *= \ 
-                    exp(- step * material.absorption_function_3d(start.x, start.y, start.z))
+                    spectrum.samples_mv[0] *= exp(- step * material.absorption_function_3d(start.x, start.y, start.z))
 
                 emission_previous = emission
                 emission.clear()
