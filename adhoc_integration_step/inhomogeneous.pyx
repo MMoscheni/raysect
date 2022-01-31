@@ -78,10 +78,9 @@ cdef class NumericalIntegrator(VolumeIntegrator):
       range (default=5).
     """
 
-    def __init__(self, float step, int min_samples = 5): #, Function3D step_function_3d = None):
+    def __init__(self, float step, int min_samples = 5):
         self._step = step
         self._min_samples = min_samples
-        # self._step_function_3d = autowrap_function3d(step_function_3d)
 
     @property
     def step(self):
@@ -102,14 +101,6 @@ cdef class NumericalIntegrator(VolumeIntegrator):
         if value < 2:
             raise ValueError("At least two samples are required to perform the numerical integration.")
         self._min_samples = value
-        
-    # @property
-    # def step_function_3d(self):
-    #     return self._step_function_3d
-
-    # @step_function_3d.setter
-    # def step_function_3d(self, Function3D value):
-    #     self._step_function_3d = value
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
@@ -210,6 +201,10 @@ cdef class NumericalIntegrator(VolumeIntegrator):
                 step = material.step_function_3d(start.x,
                                                  start.y,
                                                  start.z)
+                
+                # means that emission is exactly 0.0
+                if step == 0.0:
+                    step = material.step_max
                 
                 start = new_point3d(
                     start.x + step * integration_direction.x,
