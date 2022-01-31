@@ -58,6 +58,7 @@ cdef class RadiationFunction(InhomogeneousVolumeEmitter):
         readonly Function3D step_function_3d         # MMM
         readonly int use_absorption_function         # MMM
         readonly int use_step_function               # MMM
+        readonly float step_max                      # MMM
 
     def __init__(self, radiation_function, use_absorption_function, absorption_function_3d,
                        use_step_function, step_function_3d, step_max = 0.1, step = 0.1): # MMM
