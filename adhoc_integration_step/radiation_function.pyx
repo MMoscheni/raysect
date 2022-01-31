@@ -60,7 +60,7 @@ cdef class RadiationFunction(InhomogeneousVolumeEmitter):
         readonly int use_step_function               # MMM
 
     def __init__(self, radiation_function, use_absorption_function, absorption_function_3d,
-                       use_step_function, step_function_3d, step = 0.1): # MMM
+                       use_step_function, step_function_3d, step_max = 0.1, step = 0.1): # MMM
 
         super().__init__(NumericalIntegrator(step=step))
         self.radiation_function =      autowrap_function3d(radiation_function)
@@ -68,6 +68,7 @@ cdef class RadiationFunction(InhomogeneousVolumeEmitter):
         self.absorption_function_3d =  autowrap_function3d(absorption_function_3d)
         self.use_step_function =       use_step_function
         self.step_function_3d =        autowrap_function3d(step_function_3d)
+        self.step_max         =        step_max
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
