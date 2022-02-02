@@ -125,6 +125,7 @@ cdef class NumericalIntegrator(VolumeIntegrator):
             int collisions_max = material.collisions_max
             double sn
             double collision_probability = 0.0
+            SolidAngleSampler sphere_sampler
 
         # convert start and end points to local space
         start = start_point.transform(world_to_primitive)
@@ -301,10 +302,9 @@ cdef class NumericalIntegrator(VolumeIntegrator):
                   if uniform() < collision_probability:
 
                     # isotropic scattering
-                    integration_direction = SphereSampler()
-                    # integration_direction(1) return a list of 1 Vector3D and we take the 0th element
-                    # (overwriting integration_direction to save on number of variables declared)
-                    integration_direction = integration_direction(1)[0]
+                    sphere_sampler = SphereSampler()
+                    # sphere_sampler(1) return a list of 1 Vector3D and we take the 0th element
+                    integration_direction = sphere_sampler(1)[0]
                     collisions += 1
                     print("{} {:.4G} {:.4G} {:.4G}".format(collisions, start.x, start.y, start.z))
                     
