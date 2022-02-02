@@ -30,7 +30,7 @@
 # POSSIBILITY OF SUCH DAMAGE.
 
 from raysect.optical           cimport new_point3d
-from libc.math                 cimport floor, exp, min
+from libc.math                 cimport floor, exp, fmin
 from raysect.core.math.sampler cimport SphereSampler
 from raysect.core.math.random  cimport uniform
 cimport cython
@@ -271,7 +271,7 @@ cdef class NumericalIntegrator(VolumeIntegrator):
                 
                 # minimum between step and mfp to properly resolve both emission and scattering, respectively
                 # (HP. possibly scattering where step == 0, i.e. scattering > 0 although emission == 0)
-                step = min(step, 1.0 / sn)
+                step = fmin(step, 1.0 / sn)
                   
                 start = new_point3d(
                     start.x + step * integration_direction.x,
