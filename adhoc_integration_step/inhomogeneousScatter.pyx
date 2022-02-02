@@ -29,9 +29,10 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
-from raysect.optical cimport new_point3d
-from libc.math cimport floor, exp, min
-# from cherab.core.math.function cimport Function3D, autowrap_function3d # MMM
+from raysect.optical           cimport new_point3d
+from libc.math                 cimport floor, exp, min
+from raysect.core.math.sampler cimport SphereSampler
+from raysect.core.math.random  cimport uniform
 cimport cython
 
 
@@ -114,13 +115,16 @@ cdef class NumericalIntegrator(VolumeIntegrator):
           
             Point3D start, end
             Vector3D integration_direction, ray_direction
-            double length, length_traveled, step, t, c
+            double length, step, t, c
+            double length_traveled = 0.0
             Spectrum emission, emission_previous, temp
             int intervals, interval, index
             
-            # scattering-absorption
-            int collisions, collisions_max, still_inside_primitive
-            double sn, collision_probability
+            # scattering
+            int collisions = 0
+            int collisions_max = material.collisions_max
+            double sn
+            double collision_probability = 0.0
 
         # convert start and end points to local space
         start = start_point.transform(world_to_primitive)
@@ -192,15 +196,15 @@ cdef class NumericalIntegrator(VolumeIntegrator):
         elif material.use_step_function == 1 and material.use_scattering_function == 0:
 
             length_traveled = 0.0
+            
+            # sample point 
+            emission_previous = material.emission_function(start, ray_direction, emission_previous,
+                                                           world, ray, primitive,
+                                                           world_to_primitive, primitive_to_world)
 
             # numerical integration
             
             while length_traveled < length:
-
-                # sample point 
-                emission_previous = material.emission_function(start, ray_direction, emission_previous,
-                                                               world, ray, primitive,
-                                                               world_to_primitive, primitive_to_world)
 
                 # calculate location of sample point at the top of the interval
                 step = material.step_function_3d(start.x,
@@ -239,20 +243,18 @@ cdef class NumericalIntegrator(VolumeIntegrator):
         # you need smart sampling step to allow for scattering because of variable mfp
 
         elif material.use_step_function == 1 and material.use_scattering_function == 1:
-
-            collisions = 0
+            
+            # sample point 
+            emission_previous = material.emission_function(start, ray_direction, emission_previous,
+                                                           world, ray, primitive,
+                                                           world_to_primitive, primitive_to_world)
 
             # numerical integration:
-            # stops when either collisions_max reached OR primitive boudnary reached
+            # stops when either collisions_max reached OR primitive boundary reached
             
             while collisions <= collisions_max:
 
-                # sample point 
-                emission_previous = material.emission_function(start, ray_direction, emission_previous,
-                                                               world, ray, primitive,
-                                                               world_to_primitive, primitive_to_world)
-
-                # calculate location of sample point at the top of the interval
+                # calculate smart sampling step
                 step = material.step_function_3d(start.x,
                                                  start.y,
                                                  start.z)
@@ -263,12 +265,12 @@ cdef class NumericalIntegrator(VolumeIntegrator):
                                                      start.y,
                                                      start.z)
                 
-                # means that emission is exactly 0.0
+                # means that emission is exactly 0.0 => step_max adopted
                 if step == 0.0:
                     step = material.step_max
                 
-                # minimum between step and mfp
-                # (hp. possibly mfp > 0 where step == 0, i.e. density > 0 where emission == 0)
+                # minimum between step and mfp to properly resolve both emission and scattering, respectively
+                # (HP. possibly scattering where step == 0, i.e. scattering > 0 although emission == 0)
                 step = min(step, 1.0 / sn)
                   
                 start = new_point3d(
@@ -278,17 +280,7 @@ cdef class NumericalIntegrator(VolumeIntegrator):
                 )
                 
                 # check boundary has NOT been reached
-                #
-                # ray.direction = ???
-                # ray.trace = ???
-                # ray.first_intersection ???
-                # ray.length = ???
-                # if step < ray.length => OK, still in primitive
-                #
-                # OR
-                #
-                # material.primitive.contains(start) ???
-                if material.primitive.contains(start) is True:
+                if material.primitive.contains(start) == True:
 
                   emission = material.emission_function(start, ray_direction, emission_previous,
                                                         world, ray, primitive,
@@ -304,13 +296,14 @@ cdef class NumericalIntegrator(VolumeIntegrator):
                   # what happens next?
                   collision_probability = 1.0 - exp(- step * sn)
 
-                  # YES collision condition:
-                  # no "=" sign because NO collision if collision_probability == 0
-                  if rand(????) < collision_probability:
+                  # YES: collision condition is met
+                  # (strict "<" sign - no "=" - because NO collision if collision_probability == 0)
+                  if uniform() < collision_probability:
 
                     # isotropic scattering
-                    integration_direction = uniform_sampling_sphere(???).normalise(???)
+                    integration_direction = SphereSampler()
                     collisions += 1
+                    print("{} {:.4G} {:.4G} {:.4G}".format(collisions, start.x, start.y, start.z))
                     
                 else:
                   # story ends
