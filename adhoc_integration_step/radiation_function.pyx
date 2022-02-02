@@ -63,11 +63,11 @@ cdef class RadiationFunction(InhomogeneousVolumeEmitter):
         readonly int collisions_max                  # MMM
         readonly float step_max                      # MMM
 
-    def __init__(self, radiation_function,                                                    # emission
-                       use_absorption_function, absorption_function_3d,                       # absorption
-                       use_scattering_function, scattering_function_3d, collisions_max = 100, # scattering
-                       use_step_function,       step_function_3d,       step_max = 0.1,       # smart sampling
-                       step = 0.1):                                                           # uniform sampling
+    def __init__(self, radiation_function,                              # emission
+                       use_absorption_function, absorption_function_3d, # absorption
+                       use_scattering_function, scattering_function_3d, # scattering
+                       use_step_function,       step_function_3d,       # smart sampling
+                       collisions_max = 100,    step_max = 0.1,  step = 0.1):
 
         super().__init__(NumericalIntegrator(step = step))
         # radiation emission
