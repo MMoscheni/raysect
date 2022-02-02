@@ -60,26 +60,29 @@ cdef class RadiationFunction(InhomogeneousVolumeEmitter):
         readonly int use_absorption_function         # MMM
         readonly int use_scattering_function         # MMM
         readonly int use_step_function               # MMM
+        readonly int collisions_max                  # MMM
         readonly float step_max                      # MMM
 
-    def __init__(self, radiation_function, use_absorption_function, absorption_function_3d,
-                                           use_scattering_function, scattering_function_3d,
-                                           use_step_function,       step_function_3d,
-                                           step_max = 0.1,          step = 0.1): # MMM
+    def __init__(self, radiation_function,                                                    # emission
+                       use_absorption_function, absorption_function_3d,                       # absorption
+                       use_scattering_function, scattering_function_3d, collisions_max = 100, # scattering
+                       use_step_function,       step_function_3d,       step_max = 0.1,       # smart sampling
+                       step = 0.1):                                                           # uniform sampling
 
         super().__init__(NumericalIntegrator(step = step))
         # radiation emission
-        self.radiation_function =      autowrap_function3d(radiation_function)
+        self.radiation_function      = autowrap_function3d(radiation_function)
         # absorption
         self.use_absorption_function = use_absorption_function
-        self.absorption_function_3d =  autowrap_function3d(absorption_function_3d)
+        self.absorption_function_3d  = autowrap_function3d(absorption_function_3d)
         # scattering
         self.use_scattering_function = use_scattering_function
-        self.scattering_function_3d =  autowrap_function3d(scattering_function_3d)
+        self.scattering_function_3d  = autowrap_function3d(scattering_function_3d)
+        self.collisions_max          = collisions_max
         # smart sampling
-        self.use_step_function =       use_step_function
-        self.step_function_3d =        autowrap_function3d(step_function_3d)
-        self.step_max         =        step_max
+        self.use_step_function       = use_step_function
+        self.step_function_3d        = autowrap_function3d(step_function_3d)
+        self.step_max                = step_max
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
