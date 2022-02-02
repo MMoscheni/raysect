@@ -273,6 +273,7 @@ cdef class NumericalIntegrator(VolumeIntegrator):
                 # minimum between step and mfp to properly resolve both emission and scattering, respectively
                 # (HP. possibly scattering where step == 0, i.e. scattering > 0 although emission == 0)
                 step = fmin(step, 1.0 / sn)
+                raise ValueError('Very likely inappropriate! Occrence of a collision is to be checked every 1 mfp, not every 1 step if step < mfp.')
                   
                 start = new_point3d(
                     start.x + step * integration_direction.x,
@@ -300,6 +301,8 @@ cdef class NumericalIntegrator(VolumeIntegrator):
                   # YES: collision condition is met
                   # (strict "<" sign - no "=" - because NO collision if collision_probability == 0)
                   if uniform() < collision_probability:
+                    
+                    raise ValueError('very likely wrong! Ask Alex, the Ultimate Boss of Monte Carlo.')
 
                     # isotropic scattering
                     sphere_sampler = SphereSampler()
