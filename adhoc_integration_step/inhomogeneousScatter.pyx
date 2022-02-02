@@ -125,7 +125,7 @@ cdef class NumericalIntegrator(VolumeIntegrator):
             int collisions_max = material.collisions_max
             double sn
             double collision_probability = 0.0
-            SolidAngleSampler sphere_sampler
+            SphereSampler sphere_sampler
 
         # convert start and end points to local space
         start = start_point.transform(world_to_primitive)
