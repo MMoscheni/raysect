@@ -280,7 +280,7 @@ cdef class NumericalIntegrator(VolumeIntegrator):
                 )
                 
                 # check boundary has NOT been reached
-                if material.primitive.contains(start) == True:
+                if primitive.contains(start) == True:
 
                   emission = material.emission_function(start, ray_direction, emission_previous,
                                                         world, ray, primitive,
@@ -302,6 +302,9 @@ cdef class NumericalIntegrator(VolumeIntegrator):
 
                     # isotropic scattering
                     integration_direction = SphereSampler()
+                    # integration_direction(1) return a list of 1 Vector3D and we take the 0th element
+                    # (overwriting integration_direction to save on number of variables declared)
+                    integration_direction = integration_direction(1)[0]
                     collisions += 1
                     print("{} {:.4G} {:.4G} {:.4G}".format(collisions, start.x, start.y, start.z))
                     
