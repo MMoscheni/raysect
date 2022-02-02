@@ -306,7 +306,6 @@ cdef class NumericalIntegrator(VolumeIntegrator):
                     # sphere_sampler(1) return a list of 1 Vector3D and we take the 0th element
                     integration_direction = sphere_sampler(1)[0]
                     collisions += 1
-                    print("{} {:.4G} {:.4G} {:.4G}".format(collisions, start.x, start.y, start.z))
                     
                 else:
                   # story ends
