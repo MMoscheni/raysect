@@ -29,7 +29,7 @@
 # POSSIBILITY OF SUCH DAMAGE.
 
 from raysect.optical           cimport new_point3d
-from libc.math                 cimport floor, exp, fmin
+from libc.math                 cimport floor, fmin, exp, log
 from raysect.core.math.sampler cimport SphereSampler
 from raysect.core.math.random  cimport uniform
 cimport cython
@@ -112,8 +112,8 @@ cdef class NumericalIntegrator(VolumeIntegrator):
             # scattering-absorption
             int collisions = 0
             int collisions_max = material.collisions_max
-            double sn, ????? step_sampling, fp ????
-            double collision_probability = 0.0
+            double sn, step_sampling, fp
+            # double collision_probability = 0.0
             SphereSampler sphere_sampler
             
         # convert start and end points to local space
@@ -237,32 +237,28 @@ cdef class NumericalIntegrator(VolumeIntegrator):
             # numerical integration:
             # stops when either collisions_max reached OR primitive boundary reached
             # calculate smart sampling step
-            step_sampling = material.step_function_3d(start.x,
-                                             start.y,
-                                             start.z)
+            step_sampling = self._compute_step_sampling(material, start)
             
             # macroscopic cross section: sigma * density [m^{-1}]
             # reciprocal = mean free path between two collisions [m]
-            sn = material.scattering_function_3d(start.x,
-                                                 start.y,
-                                                 start.z)   
+            sn = material.scattering_function_3d(start.x, start.y, start.z)   
+            
             while collisions <= collisions_max:
             
                 #######################
                 ######### AAM #########
                 #######################
                 
-                # safety check if uniform returns 0
+                # sample the random free path from the pdf, knowing the TOTAL cross section sn
+                #
+                # CAUTION.
+                # if uniform() == 0 or sn == 0 => fp = "infinite"
                 try:
-                    fp = - log(uniform()) / sn  #samples the random free path from the pdf, knowing the TOTAL cross section sn
+                    fp = - log(uniform()) / sn # [m]
                 except:
-                    fp = 1E+05  # [m]: in case uniform() == 0 and fp = infinite
-                
-                # means that emission is exactly 0.0 => step_max adopted
-                if step_sampling == 0.0:
-                    step_sampling = material.step_max
+                    fp = 1E+05 # [m]
                     
-                # minimum between step and mfp to properly resolve both emission and scattering, respectively
+                # minimum between step_sampling and fp to properly resolve both emission and scattering-absirption
                 # (HP. possibly scattering where step == 0, i.e. scattering > 0 although emission == 0)
                 step = fmin(step_sampling, fp)
                 
@@ -281,30 +277,24 @@ cdef class NumericalIntegrator(VolumeIntegrator):
                   
                   # trapezium rule integration
                   # HP: no wavelength dependence
-                  spectrum.samples_mv[0] += 0.5 * step * (emission.samples_mv[0] + emission_previous.samples_mv[0])
+                  spectrum.samples_mv[0] += 5E-01 * step * (emission.samples_mv[0] + emission_previous.samples_mv[0])
                   emission_previous = emission
                   emission.clear()
                     
                   # what happens next?
-                  # if the step is equal to the free path (i.e the free path is smaller than the step from use_step_function)
-                  # we check of there is a collision
+                  # if the fp < step_sampling:
+                  # - compute emission at distance fp (although < step_sampling => over-sampling => conservative)
+                  # - fp already traveled => compure scattering-vs-absorption (if active) and sample new direction
                   if fp < step_sampling:
                     
                     # macroscopic cross section: sigma * density [m^{-1}]
                     # reciprocal = mean free path between two collisions [m]
-                    sn = material.scattering_function_3d(start.x,
-                                                         start.y,
-                                                         start.z) 
-                    
-                    # collision_probability = 1.0 - exp(- step * sn)
-                    
-                    # YES: collision condition is met
-                    # (strict "<" sign - no "=" - because NO collision if collision_probability == 0)
+                    sn = material.scattering_function_3d(start.x, start.y, start.z)    
                     
                     #################################################
                     # 100% scattering, da modifcare se assorbimento #
                     #################################################
-                    #if uniform() < collision_probability: #forse qui ci vorrebbe la scattering_probability
+                    #if uniform() < scatt_vs_abs_probability: #forse qui ci vorrebbe la scattering_probability
                     
                     # isotropic scattering: how about Rayleigh scattering?
                     sphere_sampler = SphereSampler()
@@ -312,26 +302,29 @@ cdef class NumericalIntegrator(VolumeIntegrator):
                     integration_direction = sphere_sampler(1)[0]
                     collisions += 1
                     
-                    step_sampling = material.step_function_3d(start.x,
-                                                              start.y,
-                                                              start.z)
+                    step_sampling = self._compute_step_sampling(material, start)
                     
                   else:
                     
-                    step_cumulative = step
+                    # if step_sampling < fp then radiation sampling along the straight line
+                    # until fp (i.e. collision point) is reached
+                    #
+                    # CAUTION. 
+                    # step_sampling = step_sampling(x,y,z) varies along the line!
                     
-                    # prova new_variable=fp-step_cumulative
-                    while fp-step_cumulative > step_sampling:
+                    length_traveled = step_sampling
+                    
+                    # update step_sampling in newly-computed point start                        
+                    step_sampling = self._compute_step_sampling(material, start)
+                    
+                    # try defining stanalone variable residual_length = (fp-step_cumulative)
+                    while fp - length_traveled > step_sampling:
                         
                         start = new_point3d(
-                            start.x + step * integration_direction.x,
-                            start.y + step * integration_direction.y,
-                            start.z + step * integration_direction.z
+                            start.x + step_sampling * integration_direction.x,
+                            start.y + step_sampling * integration_direction.y,
+                            start.z + step_sampling * integration_direction.z
                         )
-                        
-                        step_sampling = material.step_function_3d(start.x,
-                                                                  start.y,
-                                                                  start.z)
                         
                         # check boundary has NOT been reached
                         if primitive.contains(start) == True:
@@ -342,7 +335,7 @@ cdef class NumericalIntegrator(VolumeIntegrator):
                           
                           # trapezium rule integration
                           # HP: no wavelength dependence
-                          spectrum.samples_mv[0] += 0.5 * step * (emission.samples_mv[0] + emission_previous.samples_mv[0])
+                          spectrum.samples_mv[0] += 5E-01 * step_sampling * (emission.samples_mv[0] + emission_previous.samples_mv[0])
                           emission_previous = emission
                           emission.clear()
                         
@@ -350,13 +343,17 @@ cdef class NumericalIntegrator(VolumeIntegrator):
                             # story ends
                             return spectrum
                         
-                        step_cumulative += step_sampling
+                        length_traveled += step_sampling
+                        
+                        # update step_sampling in newly-computed point start                        
+                        step_sampling = self._compute_step_sampling(material, start)
                         
                     # siamo arrivati a free path
+                    step_sampling = fp - length_traveled
                     start = new_point3d(
-                        start.x + (fp - step_cumulative) * integration_direction.x,
-                        start.y + (fp - step_cumulative) * integration_direction.y,
-                        start.z + (fp - step_cumulative) * integration_direction.z
+                        start.x + step_sampling * integration_direction.x,
+                        start.y + step_sampling * integration_direction.y,
+                        start.z + step_sampling * integration_direction.z
                         )
                     
                     # check boundary has NOT been reached
@@ -368,7 +365,7 @@ cdef class NumericalIntegrator(VolumeIntegrator):
                       
                       # trapezium rule integration
                       # HP: no wavelength dependence
-                      spectrum.samples_mv[0] += 0.5 * step * (emission.samples_mv[0] + emission_previous.samples_mv[0])
+                      spectrum.samples_mv[0] += 5E-01 * step_sampling * (emission.samples_mv[0] + emission_previous.samples_mv[0])
                       emission_previous = emission
                       emission.clear()
                         
@@ -376,15 +373,11 @@ cdef class NumericalIntegrator(VolumeIntegrator):
                         # story ends
                         return spectrum
                     
-                    step_sampling = material.step_function_3d(start.x,
-                                                              start.y,
-                                                              start.z)
+                    step_sampling = self._compute_step_sampling(material, start)
                     
                     # macroscopic cross section: sigma * density [m^{-1}]
                     # reciprocal = mean free path between two collisions [m]
-                    sn = material.scattering_function_3d(start.x,
-                                                         start.y,
-                                                         start.z) 
+                    sn = material.scattering_function_3d(start.x, start.y, start.z)    
                     
                     # collision_probability = 1.0 - exp(- step * sn)
                     
@@ -411,6 +404,12 @@ cdef class NumericalIntegrator(VolumeIntegrator):
     cdef int _check_dimensions(self, Spectrum spectrum, int bins) except -1:
         if spectrum.samples.ndim != 1 or spectrum.samples.shape[0] != bins:
             raise ValueError("Spectrum returned by emission function has the wrong number of samples.")
+            
+    cdef double _compute_step_sampling(self, InhomogeneousVolumeEmitter material, Point3D point) except -1:
+        cdef: double step_sampling = material.step_function_3d(point.x, point.y, point.z)
+        if step_sampling == 0.0: # <=> emission == 0.0 => maximum step_sampling
+            return material.step_max
+        return step_sampling
             
 cdef class InhomogeneousVolumeEmitter(NullSurface):
     
