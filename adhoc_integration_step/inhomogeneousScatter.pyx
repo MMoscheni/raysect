@@ -226,12 +226,33 @@ cdef class NumericalIntegrator(VolumeIntegrator):
         ############### MMM ################
         ####################################
         
+        
         # you need smart sampling step to allow for scattering because of variable mfp
         elif material.use_step_function == 1 and material.use_scattering_function == 1:
             
-            # CAUTION.
+            # CAUTION pt. 1
             #
-            # YOU NEED TO START FROM END! IT DOES NOT CHANGE :)
+            # YOU NEED TO BEING FROM END (i.e. from the point where the ray ENTERS the primitive)!
+            # 
+            # Test with standard algorithm:
+            # - Uniform sampling
+            # - No scattering nor absorption
+            # - Swapped start and end point
+            # => SUCCESSFUL: NO CHANGE IN THE RESULT
+            # => allowed to "begin from end" when scattering is present
+            #
+            # CAUTION pt. 2
+            #
+            # If absorption is to be implemented, merely choosing among scattering or absorption is NOT allowed,
+            # and if absorption comes out then terminate the tracing, because:
+            # - REVERSE ray tracing is employed! Tracing is goind backwards!
+            # - A ray is NOT a photon, but rather a photon packet => scattering in one direction means selecting
+            #   all those photons which end up being scattered in that very direction, while absorbing the whole
+            #   ray means absorbing the entire photon packet, which is WRONG! Only a portion (depending on the
+            #   absorption cross section w.r.t. the total one) of the packet will disappear
+            #   => attenuation-like law to be employed (see Wikipedia "Monte Carlo for radiation transport")
+            #   BUT NOT APROPRIATE IN REVERSE RAY-TRACING! The actual direction must be considered...
+            #   => storing the trajectory? Computational overhead would likely significantly increase...
             start = end
             
             # sample point 
@@ -246,7 +267,8 @@ cdef class NumericalIntegrator(VolumeIntegrator):
             
             # macroscopic cross section: sigma * density [m^{-1}]
             # reciprocal = mean free path between two collisions [m]
-            sn = material.scattering_function_3d(start.x, start.y, start.z)   
+            sn = material.scattering_function_3d(start.x, start.y, start.z)  
+            raise ValueError('MUST SOMEHOW EVALUATE fp AT NEXT STEP, BECAUSE BACKWARD-GOING!')
             
             while collisions <= collisions_max:
             
