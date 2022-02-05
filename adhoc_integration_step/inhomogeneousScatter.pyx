@@ -229,6 +229,11 @@ cdef class NumericalIntegrator(VolumeIntegrator):
         # you need smart sampling step to allow for scattering because of variable mfp
         elif material.use_step_function == 1 and material.use_scattering_function == 1:
             
+            # CAUTION.
+            #
+            # YOU NEED TO START FROM END! IT DOES NOT CHANGE :)
+            start = end
+            
             # sample point 
             emission_previous = material.emission_function(start, ray_direction, emission_previous,
                                                            world, ray, primitive,
