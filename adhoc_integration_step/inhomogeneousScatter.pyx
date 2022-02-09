@@ -268,7 +268,7 @@ cdef class NumericalIntegrator(VolumeIntegrator):
             # macroscopic cross section: sigma * density [m^{-1}]
             # reciprocal = mean free path between two collisions [m]
             sn = material.scattering_function_3d(start.x, start.y, start.z)  
-            raise ValueError('MUST SOMEHOW EVALUATE fp AT NEXT STEP, BECAUSE BACKWARD-GOING!')
+            raise ValueError('If sn == 0.0 then NO scattering and proceed in same direction and step_max')
             
             while collisions <= collisions_max:
             
