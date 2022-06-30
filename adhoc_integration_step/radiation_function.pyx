@@ -39,17 +39,61 @@ cdef class RadiationFunction(InhomogeneousVolumeEmitter):
     wrapping this in a VolumeTransform material to ensure the function
     evaluation takes place in the correct coordinate system.
 
+    Further parameters added to increase functionalities (e.g. non-uniform sampling).
+
+    CAUTION.
+    
+    - Scattering NOT YET IMPLEMENTED
+    - When implemented, would be QUALITATIVE only: reverse ray-tracing
+      will somewhat "bias" trajectories (i.e. free path computed with
+      cross-section at the "future" point in space...)
+
     :param Function3D radiation_function: A 3D radiation function that specifies the amount of radiation
       to be radiated at a given point, :math:`\phi(x, y, z)` [W/m^3].
     :param float step: The scale length for integration of the radiation function.
+    :param int use_step_function: If True (or 1) activates non-uniform sampling.
+    :param Function3D step_function_3d: A 3D function that specifies the non-uniform sampling step
+      at a given point, :math:`\Delta s(x,y,z)` [m^{-1}].
+    :param int step_max: Maximum sampling step allowed in non-uniform sampling, :math:`\Delta s_{max}` [m].
+    :param int use_absorption_function: If True (or 1) activates self-absorption.
+    :param Function3D absorption_function_3d: A 3D function that specifies the macroscopic absorption
+      cross section at a given point, :math:`\Sigma_{abs}(x,y,z)` [m].
+    :param int use_scattering_function: If True (or 1) activates self-scattering.
+    :param Function3D scattering_function_3d: A 3D function that specifies the macroscopic scattering
+      cross section at a given point, :math:`\Sigma_{sct}(x,y,z)` [m].
+    :param int collisions_max: Maximum number of self-scattering events (collisions).
 
     .. code-block:: pycon
 
+       >>> import numpy as np
        >>> from cherab.tools.emitters import RadiationFunction
        >>>
        >>> # define your own 3D radiation function and insert it into this class
-       >>> def rad_function_3d(x, y, z): return 0
-       >>> radiation_emitter = RadiationFunction(rad_function_3d)
+       >>> def rad_function_3d(x, y, z):
+               r = np.sqrt(x**2 + y**2 + z**2)
+               if r == 0: return 0
+               else:      return np.min([1E+00, r])
+       >>>
+       >>> # define your own 3D step function and insert it into this class
+       >>> def step_function_3d(x, y, z):
+               r = np.sqrt(x**2 + y**2 + z**2)
+               if r == 0: return 1E-05
+               else:      return 1E-02 * np.min([1E+00, r])
+       >>>
+       >>> # define your own 3D absorption function and insert it into this class
+       >>> def abs_function_3d(x, y, z): return 1E-01 * rad_function_3d(x,y,z)
+       >>>
+       >>> radiation_emitter = RadiationFunction(radiation_function      = rad_function_3d,
+                                                 step                    = np.inf,
+                                                 use_step_function       = True,
+                                                 step_function_3d        = step_function_3d,
+                                                 step_max                = 1E-02,
+                                                 use_absorption_function = True,
+                                                 absorption_function_3d  = abs_function_3d,
+                                                 use_scattering_function = False,
+                                                 scattering_function_3d  = None,
+                                                 collisions_max          = 0
+                                                )
     """
 
     cdef:
@@ -64,14 +108,18 @@ cdef class RadiationFunction(InhomogeneousVolumeEmitter):
         readonly float step_max                      # MMM
 
     def __init__(self, radiation_function,                              # emission
+                       use_step_function,       step_function_3d,       # non-uniform sampling
                        use_absorption_function, absorption_function_3d, # absorption
                        use_scattering_function, scattering_function_3d, # scattering
-                       use_step_function,       step_function_3d,       # smart sampling
                        collisions_max = 100,    step_max = 0.1,  step = 0.1):
 
         super().__init__(NumericalIntegrator(step = step))
         # radiation emission
         self.radiation_function      = autowrap_function3d(radiation_function)
+        # non-uniform sampling
+        self.use_step_function       = use_step_function
+        self.step_function_3d        = autowrap_function3d(step_function_3d)
+        self.step_max                = step_max
         # absorption
         self.use_absorption_function = use_absorption_function
         self.absorption_function_3d  = autowrap_function3d(absorption_function_3d)
@@ -79,10 +127,6 @@ cdef class RadiationFunction(InhomogeneousVolumeEmitter):
         self.use_scattering_function = use_scattering_function
         self.scattering_function_3d  = autowrap_function3d(scattering_function_3d)
         self.collisions_max          = collisions_max
-        # smart sampling
-        self.use_step_function       = use_step_function
-        self.step_function_3d        = autowrap_function3d(step_function_3d)
-        self.step_max                = step_max
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
