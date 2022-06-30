@@ -29,9 +29,10 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
-from raysect.optical cimport new_point3d
-from libc.math cimport floor, exp
-# from cherab.core.math.function cimport Function3D, autowrap_function3d # MMM
+from raysect.optical           cimport new_point3d
+from libc.math                 cimport floor, exp, fmin
+from raysect.core.math.sampler cimport SphereSampler
+from raysect.core.math.random  cimport uniform
 cimport cython
 
 
@@ -109,13 +110,43 @@ cdef class NumericalIntegrator(VolumeIntegrator):
     cpdef Spectrum integrate(self, Spectrum spectrum, World world, Ray ray, Primitive primitive,
                              InhomogeneousVolumeEmitter material, Point3D start_point, Point3D end_point,
                              AffineMatrix3D world_to_primitive, AffineMatrix3D primitive_to_world):
+        """
+        Given origin and end points of a ray, source integration is performed along the linear trajectory
+        (no scattering) connecting them. 
+
+        By default, uniform sampling along the trajectory is assumed, and samples are uniformly spaced of
+        a quantity step [m].
+
+        If non-uniform sampling is activated, samples are distributed according to step_function_3d, i.e.
+        step = step(x,y,z) and may vary from point to point. If step(x,y,z) == 0, step_max is used instead
+        (source(x,y,z) == 0).
+
+        If self-absorption is activated, the integrated emission between to consecutive sample points is
+        linearly attenuated (Lambert-Beer law) of a factor exp(-step*absorption_function_3d(x,y,z)) where:
+          - step is the step length (either uniform or non-uniform) [m]
+          - absorption_function_3d(x,y,z) is the macroscopic self-absorption cross section [m^{-1}]
+        """
 
         cdef:
+          
             Point3D start, end
             Vector3D integration_direction, ray_direction
-            double length, length_traveled, step, t, c
+            double length, step, t, c
+            double length_traveled = 0.0
             Spectrum emission, emission_previous, temp
             int intervals, interval, index
+            
+            # CAUTION.
+            # - Scattering NOT YET IMPLEMENTED
+            # - When implemented, would be QUALITATIVE only: reverse ray-tracing
+            #   will somewhat "bias" trajectories (i.e. free path computed with
+            #   cross-section at the "future" point in space...)
+            #
+            # int collisions = 0
+            # int collisions_max = material.collisions_max
+            # double sn
+            # double collision_probability = 0.0
+            # SphereSampler sphere_sampler
 
         # convert start and end points to local space
         start = start_point.transform(world_to_primitive)
@@ -137,10 +168,10 @@ cdef class NumericalIntegrator(VolumeIntegrator):
         emission_previous = ray.new_spectrum()
 
         ####################################
-        ############### MMM ################
-        ####################################
 
         if material.use_step_function == 0:
+
+            # usual procedure with uniform step and for loop
 
             # calculate number of complete intervals (samples - 1)
             intervals = max(self._min_samples - 1, <int> floor(length / self._step))
@@ -172,6 +203,7 @@ cdef class NumericalIntegrator(VolumeIntegrator):
                 for index in range(spectrum.bins):
                     spectrum.samples_mv[index] += c * (emission.samples_mv[index] + emission_previous.samples_mv[index])
                     if material.use_absorption_function == 1:
+                        # linear attenuation if self-absorption is activated
                         spectrum.samples_mv[index] *= exp(- step * material.absorption_function_3d(sample_point.x, sample_point.y, sample_point.z))
 
                 # swap buffers and clear the active buffer
@@ -181,21 +213,21 @@ cdef class NumericalIntegrator(VolumeIntegrator):
                 emission.clear()
 
         ####################################
-        ############### MMM ################
-        ####################################
 
-        else:
+        elif material.use_step_function == 1 and material.use_scattering_function == 0:
+
+            # new procedure with non-uniform step and while loop
 
             length_traveled = 0.0
+            
+            # sample point 
+            emission_previous = material.emission_function(start, ray_direction, emission_previous,
+                                                           world, ray, primitive,
+                                                           world_to_primitive, primitive_to_world)
 
             # numerical integration
             
             while length_traveled < length:
-
-                # sample point 
-                emission_previous = material.emission_function(start, ray_direction, emission_previous,
-                                                               world, ray, primitive,
-                                                               world_to_primitive, primitive_to_world)
 
                 # calculate location of sample point at the top of the interval
                 step = material.step_function_3d(start.x,
@@ -203,8 +235,8 @@ cdef class NumericalIntegrator(VolumeIntegrator):
                                                  start.z)
                 
                 # means that emission is exactly 0.0
-                if step == 0.0:
-                    step = material.step_max
+                # and prevents infinite loop
+                if step == 0.0: step = material.step_max
                 
                 start = new_point3d(
                     start.x + step * integration_direction.x,
@@ -216,16 +248,89 @@ cdef class NumericalIntegrator(VolumeIntegrator):
                                                       world, ray, primitive,
                                                       world_to_primitive, primitive_to_world)
 
-                # trapezium rule integration
-                # HP: no wavelength dependence
-                spectrum.samples_mv[0] += 0.5 * step * (emission.samples_mv[0] + emission_previous.samples_mv[0])
-                if material.use_absorption_function == 1:
-                    spectrum.samples_mv[0] *= exp(- step * material.absorption_function_3d(start.x, start.y, start.z))
+                for index in range(spectrum.bins):
+                    spectrum.samples_mv[index] += 0.5 * step * (emission.samples_mv[index] + emission_previous.samples_mv[index])
+                    if material.use_absorption_function == 1:
+                        # linear attenuation if self-absorption is activated
+                        spectrum.samples_mv[index] *= exp(- step * material.absorption_function_3d(sample_point.x, sample_point.y, sample_point.z))
 
                 emission_previous = emission
                 emission.clear()
 
                 length_traveled += step
+                
+        ####################################
+        
+        # you need non-uniform sampling step to allow for scattering because of variable mfp
+
+        # elif material.use_step_function == 1 and material.use_scattering_function == 1:
+            
+        #     # sample point 
+        #     emission_previous = material.emission_function(start, ray_direction, emission_previous,
+        #                                                    world, ray, primitive,
+        #                                                    world_to_primitive, primitive_to_world)
+
+        #     # numerical integration:
+        #     # stops when either collisions_max reached OR primitive boundary reached
+            
+        #     while collisions <= collisions_max:
+
+        #         # calculate smart sampling step
+        #         step = material.step_function_3d(start.x,
+        #                                          start.y,
+        #                                          start.z)
+                
+        #         # macroscopic cross section: sigma * density [m^{-1}]
+        #         # reciprocal = mean free path between two collisions [m]
+        #         sn = material.scattering_function_3d(start.x,
+        #                                              start.y,
+        #                                              start.z)
+                
+        #         # means that emission is exactly 0.0 => step_max adopted
+        #         if step == 0.0:
+        #             step = material.step_max
+                
+        #         # minimum between step and mfp to properly resolve both emission and scattering, respectively
+        #         # (HP. possibly scattering where step == 0, i.e. scattering > 0 although emission == 0)
+        #         step = fmin(step, 1.0 / sn)
+                  
+        #         start = new_point3d(
+        #             start.x + step * integration_direction.x,
+        #             start.y + step * integration_direction.y,
+        #             start.z + step * integration_direction.z
+        #         )
+                
+        #         # check boundary has NOT been reached
+        #         if primitive.contains(start) == True:
+
+        #           emission = material.emission_function(start, ray_direction, emission_previous,
+        #                                                 world, ray, primitive,
+        #                                                 world_to_primitive, primitive_to_world)
+
+        #           # trapezium rule integration
+        #           # HP: no wavelength dependence
+        #           spectrum.samples_mv[0] += 0.5 * step * (emission.samples_mv[0] + emission_previous.samples_mv[0])
+
+        #           emission_previous = emission
+        #           emission.clear()
+
+        #           # what happens next?
+        #           collision_probability = 1.0 - exp(- step * sn)
+
+        #           # YES: collision condition is met
+        #           # (strict "<" sign - no "=" - because NO collision if collision_probability == 0)
+        #           if uniform() < collision_probability:
+
+        #             # isotropic scattering
+        #             sphere_sampler = SphereSampler()
+        #             # sphere_sampler(1) return a list of 1 Vector3D and we take the 0th element
+        #             integration_direction = sphere_sampler(1)[0]
+        #             collisions += 1
+                    
+        #         else:
+        #           # story ends
+        #           return spectrum
+
 
         return spectrum
 
