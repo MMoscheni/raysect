@@ -31,8 +31,8 @@
 
 from raysect.optical           cimport new_point3d
 from libc.math                 cimport floor, exp, fmin
-from raysect.core.math.sampler cimport SphereSampler
-from raysect.core.math.random  cimport uniform
+# from raysect.core.math.sampler cimport SphereSampler
+# from raysect.core.math.random  cimport uniform
 cimport cython
 
 
