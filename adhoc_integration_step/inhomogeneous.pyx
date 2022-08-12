@@ -253,6 +253,8 @@ cdef class NumericalIntegrator(VolumeIntegrator):
             #   => attenuation-like law to be employed (see Wikipedia "Monte Carlo for radiation transport")
             #   BUT NOT APROPRIATE IN REVERSE RAY-TRACING! The actual direction must be considered...
             #   => storing the trajectory? Computational overhead would likely significantly increase...
+
+            raise ValueError('SCATTERING NOT YET IMPLEMENTED, AND MAYBE NOT IMPLEMENTABLE IN THE FIRST PLACE...')
             
             start_original = start
             start = end
@@ -288,6 +290,8 @@ cdef class NumericalIntegrator(VolumeIntegrator):
                     fp = - log(uniform()) / sn # [m]
                 except:
                     fp = 1E+99 # [m]
+
+                # fp = 5E-04
                     
                 # minimum between step_sampling and fp to properly resolve both emission and scattering-absorption
                 # (HP. possibly scattering where step == 0, i.e. scattering > 0 although emission == 0)
@@ -317,8 +321,6 @@ cdef class NumericalIntegrator(VolumeIntegrator):
                   # - compute emission at distance fp (although < step_sampling => over-sampling => conservative)
                   # - fp already traveled => compute scattering-vs-absorption (if active) and sample new direction
                   if fp < step_sampling:
-
-                    # print(collisions, start, integration_direction, sn, fp, step_sampling)
                     
                     # macroscopic cross section: sigma * density [m^{-1}]
                     # reciprocal = mean free path between two collisions [m]
@@ -336,6 +338,8 @@ cdef class NumericalIntegrator(VolumeIntegrator):
                     collisions += 1
                     
                     step_sampling = self._compute_step_sampling(material, start)
+
+                    # print(collisions, start, integration_direction, sn, fp, step_sampling)
                     
                   else:
                     
@@ -352,8 +356,6 @@ cdef class NumericalIntegrator(VolumeIntegrator):
                     
                     # try defining standalone variable residual_length = (fp-step_cumulative)
                     while fp - length_traveled > step_sampling:
-
-                        # print(collisions, start, integration_direction, sn, fp, step_sampling)
                         
                         start = new_point3d(
                             start.x + step_sampling * integration_direction.x,
@@ -377,6 +379,8 @@ cdef class NumericalIntegrator(VolumeIntegrator):
                         else:
                             # story ends
                             return spectrum
+
+                        # print(collisions, start, integration_direction, sn, fp, step_sampling)
                         
                         length_traveled += step_sampling
                         
