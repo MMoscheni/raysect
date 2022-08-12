@@ -102,7 +102,7 @@ cdef class NumericalIntegrator(VolumeIntegrator):
                              AffineMatrix3D world_to_primitive, AffineMatrix3D primitive_to_world):
         cdef:
             
-            Point3D start, end
+            Point3D start, start_original, end
             Vector3D integration_direction, ray_direction
             double length, step, t, c
             double length_traveled = 0.0
@@ -185,41 +185,47 @@ cdef class NumericalIntegrator(VolumeIntegrator):
         
         elif material.use_step_function == 1 and material.use_scattering_function == 0:
             
+            # new procedure with non-uniform step and while loop
+
             length_traveled = 0.0
             
             # sample point 
             emission_previous = material.emission_function(start, ray_direction, emission_previous,
                                                            world, ray, primitive,
                                                            world_to_primitive, primitive_to_world)
+
             # numerical integration
+            
             while length_traveled < length:
-                
+
                 # calculate location of sample point at the top of the interval
                 step = material.step_function_3d(start.x,
                                                  start.y,
                                                  start.z)
                 
                 # means that emission is exactly 0.0
-                if step == 0.0:
-                    step = material.step_max
+                # and prevents infinite loop
+                if step == 0.0: step = material.step_max
                 
                 start = new_point3d(
                     start.x + step * integration_direction.x,
                     start.y + step * integration_direction.y,
                     start.z + step * integration_direction.z
                 )
-                
+
                 emission = material.emission_function(start, ray_direction, emission_previous,
                                                       world, ray, primitive,
                                                       world_to_primitive, primitive_to_world)
-                # trapezium rule integration
-                # HP: no wavelength dependence
-                spectrum.samples_mv[0] += 0.5 * step * (emission.samples_mv[0] + emission_previous.samples_mv[0])
-                # if material.use_absorption_function == 1:
-                    # spectrum.samples_mv[0] *= exp(- step * material.absorption_function_3d(start.x, start.y, start.z))
-                
+
+                for index in range(spectrum.bins):
+                    spectrum.samples_mv[index] += 0.5 * step * (emission.samples_mv[index] + emission_previous.samples_mv[index])
+                    if material.use_absorption_function == 1:
+                        # linear attenuation if self-absorption is activated
+                        spectrum.samples_mv[index] *= exp(- step * material.absorption_function_3d(sample_point.x, sample_point.y, sample_point.z))
+
                 emission_previous = emission
                 emission.clear()
+
                 length_traveled += step
                 
         ####################################
@@ -253,6 +259,7 @@ cdef class NumericalIntegrator(VolumeIntegrator):
             #   => attenuation-like law to be employed (see Wikipedia "Monte Carlo for radiation transport")
             #   BUT NOT APROPRIATE IN REVERSE RAY-TRACING! The actual direction must be considered...
             #   => storing the trajectory? Computational overhead would likely significantly increase...
+            start_original = start
             start = end
             
             # sample point 
@@ -262,13 +269,12 @@ cdef class NumericalIntegrator(VolumeIntegrator):
             
             # numerical integration:
             # stops when either collisions_max reached OR primitive boundary reached
-            # calculate smart sampling step
+            # calculate non-uniform sampling step
             step_sampling = self._compute_step_sampling(material, start)
             
             # macroscopic cross section: sigma * density [m^{-1}]
             # reciprocal = mean free path between two collisions [m]
             sn = material.scattering_function_3d(start.x, start.y, start.z)  
-            raise ValueError('If sn == 0.0 then NO scattering and proceed in same direction and step_max')
             
             while collisions <= collisions_max:
             
@@ -279,13 +285,13 @@ cdef class NumericalIntegrator(VolumeIntegrator):
                 # sample the random free path from the pdf, knowing the TOTAL cross section sn
                 #
                 # CAUTION.
-                # if uniform() == 0 or sn == 0 => fp = "infinite"
+                # if uniform() == 0 or sn == 0 => fp = np.inf ~ 1E+99
                 try:
                     fp = - log(uniform()) / sn # [m]
                 except:
-                    fp = 1E+05 # [m]
+                    fp = 1E+99 # [m]
                     
-                # minimum between step_sampling and fp to properly resolve both emission and scattering-absirption
+                # minimum between step_sampling and fp to properly resolve both emission and scattering-absorption
                 # (HP. possibly scattering where step == 0, i.e. scattering > 0 although emission == 0)
                 step = fmin(step_sampling, fp)
                 
@@ -296,7 +302,7 @@ cdef class NumericalIntegrator(VolumeIntegrator):
                 )
                 
                 # check boundary has NOT been reached
-                if primitive.contains(start) == True:
+                if primitive.contains(start) is True:
                   
                   emission = material.emission_function(start, ray_direction, emission_previous,
                                                         world, ray, primitive,
@@ -311,17 +317,17 @@ cdef class NumericalIntegrator(VolumeIntegrator):
                   # what happens next?
                   # if the fp < step_sampling:
                   # - compute emission at distance fp (although < step_sampling => over-sampling => conservative)
-                  # - fp already traveled => compure scattering-vs-absorption (if active) and sample new direction
+                  # - fp already traveled => compute scattering-vs-absorption (if active) and sample new direction
                   if fp < step_sampling:
                     
                     # macroscopic cross section: sigma * density [m^{-1}]
                     # reciprocal = mean free path between two collisions [m]
                     sn = material.scattering_function_3d(start.x, start.y, start.z)    
                     
-                    #################################################
-                    # 100% scattering, da modifcare se assorbimento #
-                    #################################################
-                    #if uniform() < scatt_vs_abs_probability: #forse qui ci vorrebbe la scattering_probability
+                    #######################################################
+                    # 100% scattering, to be modified if absorption is ON #
+                    #######################################################
+                    # if uniform() < scatt_vs_abs_probability: #forse qui ci vorrebbe la scattering_probability
                     
                     # isotropic scattering: how about Rayleigh scattering?
                     sphere_sampler = SphereSampler()
@@ -339,12 +345,12 @@ cdef class NumericalIntegrator(VolumeIntegrator):
                     # CAUTION. 
                     # step_sampling = step_sampling(x,y,z) varies along the line!
                     
-                    length_traveled = step_sampling
+                    length_traveled = 0.0
                     
                     # update step_sampling in newly-computed point start                        
                     step_sampling = self._compute_step_sampling(material, start)
                     
-                    # try defining stanalone variable residual_length = (fp-step_cumulative)
+                    # try defining standalone variable residual_length = (fp-step_cumulative)
                     while fp - length_traveled > step_sampling:
                         
                         start = new_point3d(
@@ -354,7 +360,7 @@ cdef class NumericalIntegrator(VolumeIntegrator):
                         )
                         
                         # check boundary has NOT been reached
-                        if primitive.contains(start) == True:
+                        if primitive.contains(start) is True:
                             
                           emission = material.emission_function(start, ray_direction, emission_previous,
                                                                 world, ray, primitive,
@@ -375,7 +381,7 @@ cdef class NumericalIntegrator(VolumeIntegrator):
                         # update step_sampling in newly-computed point start                        
                         step_sampling = self._compute_step_sampling(material, start)
                         
-                    # siamo arrivati a free path
+                    # one only step of length (fp - length_traveled) remaining to arrive to a total distance traveled of fp
                     step_sampling = fp - length_traveled
                     start = new_point3d(
                         start.x + step_sampling * integration_direction.x,
@@ -384,7 +390,7 @@ cdef class NumericalIntegrator(VolumeIntegrator):
                         )
                     
                     # check boundary has NOT been reached
-                    if primitive.contains(start) == True:
+                    if primitive.contains(start) is True:
                         
                       emission = material.emission_function(start, ray_direction, emission_previous,
                                                             world, ray, primitive,
@@ -423,6 +429,18 @@ cdef class NumericalIntegrator(VolumeIntegrator):
                     collisions += 1
                     
                 else:
+                    
+                    # if no collisions between ray start and end (= start_original), integrate emission between start and end themselves
+                    if collisions == 0:
+                        # compute emission in end point
+                        emission = material.emission_function(start_original, ray_direction, emission_previous,
+                                                              world, ray, primitive,
+                                                              world_to_primitive, primitive_to_world)
+                        # trapezium rule integration
+                        # HP: no wavelength dependence
+                        # Note: distance here is start.distance_to(start_original)
+                        spectrum.samples_mv[0] += 5E-01 * start.distance_to(start_original) * (emission.samples_mv[0] + emission_previous.samples_mv[0])
+                        
                   # story ends
                   return spectrum
                 
