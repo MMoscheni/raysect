@@ -170,8 +170,8 @@ cdef class NumericalIntegrator(VolumeIntegrator):
                 # trapezium rule integration
                 for index in range(spectrum.bins):
                     spectrum.samples_mv[index] += c * (emission.samples_mv[index] + emission_previous.samples_mv[index])
-                    # if material.use_absorption_function == 1:
-                        # spectrum.samples_mv[index] *= exp(- step * material.absorption_function_3d(sample_point.x, sample_point.y, sample_point.z))
+                    if material.use_absorption_function == 1:
+                        spectrum.samples_mv[index] *= exp(- step * material.absorption_function_3d(sample_point.x, sample_point.y, sample_point.z))
                 
                 # swap buffers and clear the active buffer
                 temp = emission_previous
@@ -254,13 +254,14 @@ cdef class NumericalIntegrator(VolumeIntegrator):
             #   BUT NOT APROPRIATE IN REVERSE RAY-TRACING! The actual direction must be considered...
             #   => storing the trajectory? Computational overhead would likely significantly increase...
 
-            raise ValueError('SCATTERING NOT YET IMPLEMENTED, AND MAYBE NOT IMPLEMENTABLE IN THE FIRST PLACE...')
+            # raise ValueError('SCATTERING NOT YET IMPLEMENTED, AND MAYBE NOT IMPLEMENTABLE IN THE FIRST PLACE...')
             
             start_original = start
             start = end
 
             # because traveling along opposite direction 
             integration_direction = integration_direction.neg()
+            ray_direction = ray_direction.neg()
             
             # sample point 
             emission_previous = material.emission_function(start, ray_direction, emission_previous,
@@ -290,8 +291,6 @@ cdef class NumericalIntegrator(VolumeIntegrator):
                     fp = - log(uniform()) / sn # [m]
                 except:
                     fp = 1E+99 # [m]
-
-                # fp = 5E-04
                     
                 # minimum between step_sampling and fp to properly resolve both emission and scattering-absorption
                 # (HP. possibly scattering where step == 0, i.e. scattering > 0 although emission == 0)
@@ -321,25 +320,11 @@ cdef class NumericalIntegrator(VolumeIntegrator):
                   # - compute emission at distance fp (although < step_sampling => over-sampling => conservative)
                   # - fp already traveled => compute scattering-vs-absorption (if active) and sample new direction
                   if fp < step_sampling:
-                    
-                    # macroscopic cross section: sigma * density [m^{-1}]
-                    # reciprocal = mean free path between two collisions [m]
-                    sn = material.scattering_function_3d(start.x, start.y, start.z)    
-                    
-                    #######################################################
-                    # 100% scattering, to be modified if absorption is ON #
-                    #######################################################
-                    # if uniform() < scatt_vs_abs_probability: #forse qui ci vorrebbe la scattering_probability
-                    
-                    # isotropic scattering: how about Rayleigh scattering?
-                    sphere_sampler = SphereSampler()
-                    # sphere_sampler(1) return a list of 1 Vector3D and we take the 0th element
-                    integration_direction = sphere_sampler(1)[0]
-                    collisions += 1
-                    
-                    step_sampling = self._compute_step_sampling(material, start)
 
-                    # print(collisions, start, integration_direction, sn, fp, step_sampling)
+                    (sn, integration_direction, collisions, step_sampling) = \
+                      self._simulate_scattering(material, start, collisions)
+
+                    print('scattering', collisions, start, integration_direction, sn, fp, step_sampling)
                     
                   else:
                     
@@ -380,7 +365,7 @@ cdef class NumericalIntegrator(VolumeIntegrator):
                             # story ends
                             return spectrum
 
-                        # print(collisions, start, integration_direction, sn, fp, step_sampling)
+                        # if sn > 0: print('continue..', collisions, start, integration_direction, sn, fp, step_sampling)
                         
                         length_traveled += step_sampling
                         
@@ -412,27 +397,8 @@ cdef class NumericalIntegrator(VolumeIntegrator):
                         # story ends
                         return spectrum
                     
-                    step_sampling = self._compute_step_sampling(material, start)
-                    
-                    # macroscopic cross section: sigma * density [m^{-1}]
-                    # reciprocal = mean free path between two collisions [m]
-                    sn = material.scattering_function_3d(start.x, start.y, start.z)    
-                    
-                    # collision_probability = 1.0 - exp(- step * sn)
-                    
-                    # YES: collision condition is met
-                    # (strict "<" sign - no "=" - because NO collision if collision_probability == 0)
-                    
-                    #################################################
-                    # 100% scattering, da modifcare se assorbimento #
-                    #################################################
-                    #if uniform() < collision_probability: #forse qui ci vorrebbe la scattering_probability
-                    
-                    # isotropic scattering: how about Rayleigh scattering?
-                    sphere_sampler = SphereSampler()
-                    # sphere_sampler(1) return a list of 1 Vector3D and we take the 0th element
-                    integration_direction = sphere_sampler(1)[0]
-                    collisions += 1
+                    (sn, integration_direction, collisions, step_sampling) = \
+                      self._simulate_scattering(material, start, collisions)
                     
                 else:
 
@@ -462,6 +428,22 @@ cdef class NumericalIntegrator(VolumeIntegrator):
         if step_sampling == 0.0: # <=> emission == 0.0 => maximum step_sampling
             return material.step_max
         return step_sampling
+
+    cdef tuple _simulate_scattering(self, InhomogeneousVolumeEmitter material, Point3D point, int num_collisions):
+        cdef:
+            double sn
+            SphereSampler sphere_sampler
+        # macroscopic cross section: sigma * density [m^{-1}]
+        # reciprocal = mean free path between two collisions [m]
+        sn = material.scattering_function_3d(point.x, point.y, point.z)    
+        #######################################################
+        # 100% scattering, to be modified if absorption is ON #
+        #######################################################
+        # if uniform() < scatt_vs_abs_probability: #forse qui ci vorrebbe la scattering_probability
+        # isotropic scattering: how about Rayleigh scattering?
+        sphere_sampler = SphereSampler()
+        # sphere_sampler(1) return a list of 1 Vector3D and we take the 0th element
+        return (sn, sphere_sampler(1)[0], num_collisions + 1, self._compute_step_sampling(material, point))
             
 cdef class InhomogeneousVolumeEmitter(NullSurface):
     
