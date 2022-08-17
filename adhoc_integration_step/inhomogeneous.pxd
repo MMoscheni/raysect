@@ -48,6 +48,7 @@ cdef class NumericalIntegrator(VolumeIntegrator):
 
     cdef int _check_dimensions(self, Spectrum spectrum, int bins) except -1
     cdef double _compute_step_sampling(self, InhomogeneousVolumeEmitter material, Point3D point) except -1
+    cdef tuple _simulate_scattering(self, InhomogeneousVolumeEmitter material, Point3D point, int num_collisions)
 
 
 cdef class InhomogeneousVolumeEmitter(NullSurface):
