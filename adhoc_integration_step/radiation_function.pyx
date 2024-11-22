@@ -41,13 +41,6 @@ cdef class RadiationFunction(InhomogeneousVolumeEmitter):
 
     Further parameters added to increase functionalities (e.g. non-uniform sampling).
 
-    CAUTION.
-    
-    - Scattering NOT YET IMPLEMENTED
-    - When implemented, would be QUALITATIVE only: reverse ray-tracing
-      will somewhat "bias" trajectories (i.e. free path computed with
-      cross-section at the "future" point in space...)
-
     :param Function3D radiation_function: A 3D radiation function that specifies the amount of radiation
       to be radiated at a given point, :math:`\phi(x, y, z)` [W/m^3].
     :param float step: The scale length for integration of the radiation function.
@@ -62,6 +55,7 @@ cdef class RadiationFunction(InhomogeneousVolumeEmitter):
     :param Function3D scattering_function_3d: A 3D function that specifies the macroscopic scattering
       cross section at a given point, :math:`\Sigma_{sct}(x,y,z)` [m].
     :param int collisions_max: Maximum number of self-scattering events (collisions).
+    :param double scattering_probability: scattering probability for the material (= 1 - absorption probability). Assumed constant, i.e. independent from wavelength.
 
     .. code-block:: pycon
 
@@ -90,9 +84,11 @@ cdef class RadiationFunction(InhomogeneousVolumeEmitter):
                                                  step_max                = 1E-02,
                                                  use_absorption_function = True,
                                                  absorption_function_3d  = abs_function_3d,
+                                                 sn_max                  = 1E+00,
                                                  use_scattering_function = False,
                                                  scattering_function_3d  = None,
-                                                 collisions_max          = 0
+                                                 collisions_max          = 0,
+                                                 scattering_probability  = 0.44
                                                 )
     """
 
@@ -106,12 +102,14 @@ cdef class RadiationFunction(InhomogeneousVolumeEmitter):
         readonly int use_step_function               # MMM
         readonly int collisions_max                  # MMM
         readonly float step_max                      # MMM
+        readonly float sn_max                        # MMM
 
     def __init__(self, radiation_function,                              # emission
                        use_step_function,       step_function_3d,       # non-uniform sampling
                        use_absorption_function, absorption_function_3d, # absorption
                        use_scattering_function, scattering_function_3d, # scattering
-                       collisions_max = 100,    step_max = 0.1,  step = 0.1):
+                       scattering_probability = 0.44,                   # default for Dalpha photons
+                       collisions_max = 100,    step_max = 0.1,  step = 0.1, sn_max = 1E+100):
 
         super().__init__(NumericalIntegrator(step = step))
         # radiation emission
@@ -123,10 +121,12 @@ cdef class RadiationFunction(InhomogeneousVolumeEmitter):
         # absorption
         self.use_absorption_function = use_absorption_function
         self.absorption_function_3d  = autowrap_function3d(absorption_function_3d)
+        self.sn_max                  = sn_max
         # scattering
         self.use_scattering_function = use_scattering_function
         self.scattering_function_3d  = autowrap_function3d(scattering_function_3d)
         self.collisions_max          = collisions_max
+        self.scattering_probability  = scattering_probability
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
